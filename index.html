@@ -1891,29 +1891,50 @@ function previewExcel() {
   m.previewTitle = '📄 Customer Quotation — preview';
   renderSheetPreview(m, exportExcel, '📊 Download .xlsx');
 }
+/* Returns stocked items with no price match. productsOnly = real DH-* model codes only. */
+function getUnpricedStock(productsOnly) {
+  let list = (STOCK || []).filter(s => !findPrice(s.n));
+  if (productsOnly) list = list.filter(s => /^DH/i.test(s.n));
+  return list.sort((a,b) => a.n.localeCompare(b.n));
+}
+
+let _unpricedProductsOnly = true;
+
 function listUnpricedStock() {
-  const unpriced = (STOCK || []).filter(s => !findPrice(s.n));
   const box = document.getElementById('excelPreview');
-  if (!unpriced.length) {
+  const unpriced = getUnpricedStock(_unpricedProductsOnly);
+  const totalAll = getUnpricedStock(false).length;
+
+  if (!getUnpricedStock(false).length) {
     box.innerHTML = '<p style="padding:16px;color:green;font-weight:700">✅ All stocked items have a matching price.</p>';
     box.style.display = 'block';
     return;
   }
-  const rows = unpriced.map(s =>
+
+  const rows = unpriced.length ? unpriced.map(s =>
     `<tr>
       <td>${esc(s.n)}</td>
       <td style="text-align:center">${s.u ?? 0}</td>
       <td style="text-align:center">${s.a ?? 0}</td>
       <td style="text-align:center">${s.r ?? 0}</td>
     </tr>`
-  ).join('');
+  ).join('') : `<tr><td colspan="4" style="padding:14px;text-align:center;color:#888">No items in this view.</td></tr>`;
+
   box.innerHTML = `
-    <div style="padding:12px 16px;background:#2c3e50;color:#fff;font-weight:700;font-size:13px;border-radius:6px 6px 0 0">
-      ⚠ Stocked items with no Dahua price list match — ${unpriced.length} items
+    <div style="padding:12px 16px;background:#2c3e50;color:#fff;font-weight:700;font-size:13px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <span>⚠ Stocked items with no Dahua price — ${unpriced.length} ${_unpricedProductsOnly ? 'product models' : 'items (incl. non-products)'}</span>
+      <span style="display:flex;gap:8px">
+        <button onclick="toggleUnpricedFilter()" style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:5px;cursor:pointer">
+          ${_unpricedProductsOnly ? 'Show all '+totalAll+' items' : 'Products only'}
+        </button>
+        <button onclick="exportUnpricedList()" style="background:#1a7a1a;border:none;color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:5px;cursor:pointer">
+          📊 Export Excel
+        </button>
+      </span>
     </div>
-    <div style="overflow-x:auto">
+    <div style="overflow-x:auto;max-height:480px;overflow-y:auto">
     <table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="background:#2c3e50;color:#fff">
+      <thead><tr style="background:#2c3e50;color:#fff;position:sticky;top:0">
         <th style="padding:8px 10px;text-align:left">Model</th>
         <th style="padding:8px 10px;width:80px">Free</th>
         <th style="padding:8px 10px;width:80px">AERO</th>
@@ -1923,6 +1944,43 @@ function listUnpricedStock() {
     </table></div>`;
   box.style.display = 'block';
   box.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function toggleUnpricedFilter() {
+  _unpricedProductsOnly = !_unpricedProductsOnly;
+  listUnpricedStock();
+}
+
+function exportUnpricedList() {
+  if (typeof XLSX === 'undefined') { alert('Excel library still loading — try again in a moment.'); return; }
+  const unpriced = getUnpricedStock(_unpricedProductsOnly);
+  if (!unpriced.length) { alert('No unpriced items to export.'); return; }
+
+  const NC = 5;
+  const aoa = [], merges = [], styleMap = {};
+  let r = 0;
+  const cls = (rr,c,k) => { styleMap[rr+','+c] = k; };
+
+  // Title
+  aoa.push(['ITEMS WITH NO PRICE', null, null, null, null]);
+  merges.push({s:{r,c:0},e:{r,c:NC-1}}); cls(r,0,'title'); r++;
+  // Subtitle
+  aoa.push(['Universe Control Security System — Stocked items not in Dahua price list', null,null,null,null]);
+  merges.push({s:{r,c:0},e:{r,c:NC-1}}); cls(r,0,'company'); r++;
+  // Column headers
+  aoa.push(['Sl No.','Model','Free Qty','AERO Qty','Reserved Qty']);
+  for (let c=0;c<NC;c++) cls(r,c,'colhdr'); r++;
+  // Rows
+  unpriced.forEach((s,i) => {
+    aoa.push([i+1, s.n, s.u ?? 0, s.a ?? 0, s.r ?? 0]);
+    cls(r,0,'qty'); cls(r,2,'qty'); cls(r,3,'qty'); cls(r,4,'qty'); r++;
+  });
+
+  const cols = [{wch:7},{wch:42},{wch:12},{wch:12},{wch:14}];
+  const ws = buildStyledSheet(aoa, merges, styleMap, cols, NC);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'NO PRICE');
+  XLSX.writeFile(wb, 'Items_No_Price.xlsx');
 }
 
 function previewPriceList() {

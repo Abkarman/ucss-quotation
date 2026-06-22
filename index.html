@@ -326,6 +326,7 @@
     <div class="brand-sub">TallyPrime 4.1 — Sales Quotation XML Generator</div>
   </div>
   <div style="display:flex;align-items:center;gap:12px">
+    <a href="tally_purchase_order_generator.html" style="color:#fff;font-size:11px;font-weight:700;text-decoration:none;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.3);padding:4px 12px;border-radius:20px">↔ Purchase Order Tool</a>
     <span class="tally-badge">TALLY XML IMPORT</span>
     <div id="headerUserBadge"></div>
   </div>
@@ -2004,6 +2005,14 @@ function longDate(ymd) {
   if (!y || !m || !d) return ymd;
   return `${d} ${months[m-1]} ${y}`;
 }
+/* ── Branded Quotation (PDF) — JAMA GO style layout, Universe Control branding ── */
+const QDOC = {
+  band:   '#91CDDC',   // sky-blue band (headers / sections)
+  accent: '#006FC0',   // section label blue (Terms etc.)
+  logo1:  '#1B4F8A',   // company name blue
+  logo2:  '#E8821E'    // accent orange
+};
+
 function buildBrandedQuotationHTML() {
   const ref     = v('vchNum') || 'Quotation';
   const client  = v('partyName') || '';
@@ -2013,9 +2022,10 @@ function buildBrandedQuotationHTML() {
   const validity= v('validity') || '10 Days from Quotation Date';
   const terms   = v('paymentTerms') || 'As Per Agreement';
   const delivery= v('delivery') || 'Ex-Stock / Subject to Availability';
+  const addr    = v('partyAddress') || '';
   const isDPP   = (document.getElementById('priceLevel')?.value || 'si') === 'dpp';
   const lvlLabel= isDPP ? 'DPP — Distributor Partner Price' : 'MSRP — Recommended Retail Price';
-  const preparer= v('shippedBy');
+  const preparer= v('shippedBy') || '';
   const pTitle  = v('preparerTitle') || 'Channel Sales Manager';
   const pPhone  = v('preparerPhone');
   const pEmail  = v('preparerEmail');
@@ -2023,123 +2033,190 @@ function buildBrandedQuotationHTML() {
   const lines = getLines().filter(l => l.name && isRecognizedModel(l.name) && l.rate > 0);
   if (!lines.length) return null;
 
-  const net = round2(lines.reduce((s,l) => s + (l.rate > 0 ? l.amt : 0), 0));
+  const gross = round2(lines.reduce((s,l) => s + l.amt, 0));
+  const disc  = parseFloat(v('discountAmt')) || 0;
+  const net   = round2(gross - disc);
+  const inWords = (typeof numberToWords === 'function') ? numberToWords(net) : '';
 
-  const infoPairs = [
-    ['QUOTATION REF', ref], ['CLIENT', client],
-    ['DATE', date], ['ATTENTION', attn],
-    ['VALID UNTIL', validity], ['EMAIL', email],
-    ['PRICING LEVEL', lvlLabel], ['PAYMENT', terms],
-    ['DELIVERY', delivery]
-  ];
-  let infoRows = '';
-  for (let i = 0; i < infoPairs.length; i += 2) {
-    const a = infoPairs[i], b = infoPairs[i+1];
-    infoRows += `<tr><td class="k">${esc(a[0])}</td><td>${esc(a[1]||'—')}</td>`
-             +  (b ? `<td class="k">${esc(b[0])}</td><td>${esc(b[1]||'—')}</td>` : `<td></td><td></td>`)
-             +  `</tr>`;
-  }
-
-  let itemRows = '', hasTBD = false;
+  // Customer details (left grid) + meta (right grid)
+  const NCOLS = 9;
+  let itemRows = '';
   lines.forEach((l, idx) => {
     const p = findPrice(l.name);
-    const desc = (p && p.d) || '';
-    const priced = l.rate > 0;
-    if (!priced) hasTBD = true;
-    const unit = priced ? money(l.rate) : 'TBD';
-    const tot  = priced ? money(l.amt)  : 'TBD';
+    const desc = (p && p.d && p.d !== '无') ? p.d : '';
     itemRows += `<tr>
       <td class="c">${idx+1}</td>
+      <td class="desc">${desc ? `<span class="dt">${esc(desc)}</span>` : `<span class="dt">${esc(l.name)}</span>`}</td>
+      <td class="c">Dahua</td>
       <td class="model">${esc(l.name)}</td>
-      <td>${esc(desc)}</td>
+      <td class="c">${esc(l.unit || 'Pcs')}</td>
       <td class="c">${esc(l.qty)}</td>
-      <td class="c">${esc(l.unit || 'EA')}</td>
       <td class="c">${esc(l.warranty || '3 Year')}</td>
-      <td class="num">${unit}</td>
-      <td class="num">${tot}</td>
+      <td class="num">${money(l.rate)}</td>
+      <td class="num">${money(l.amt)}</td>
     </tr>`;
   });
+
+  const discRow = disc > 0 ? `
+        <tr><td class="tl">Discount</td><td class="tv">${money(disc)}</td></tr>` : '';
 
   const conf = isDPP
     ? `<div class="q-conf">⚠ CONFIDENTIAL — DPP Pricing. For authorized partner use only. Not for redistribution.</div>`
     : '';
 
-  const tbdNote = hasTBD
-    ? `<p class="q-note">• Items marked <strong>TBD</strong> are not in the current Dahua price list and will be confirmed upon availability.</p>`
-    : '';
-
   const css = `
     *{box-sizing:border-box;}
-    body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#222;margin:0;padding:28px;}
-    .q-header{text-align:center;border-bottom:3px solid #2c3e50;padding-bottom:12px;margin-bottom:4px;}
-    .q-header h1{margin:0;font-size:22px;color:#2c3e50;letter-spacing:1px;}
-    .q-quote{font-size:15px;font-weight:700;color:#2c3e50;margin-top:4px;letter-spacing:3px;}
-    .q-tag{font-size:12px;color:#666;margin-top:4px;}
-    table{border-collapse:collapse;width:100%;background:#fff;}
-    .q-info{margin:16px 0;font-size:12px;}
-    .q-info td{border:1px solid #ddd;padding:8px 10px;}
-    .q-info td.k{background:#2c3e50;color:#fff;font-weight:700;width:15%;white-space:nowrap;}
-    .q-conf{background:#fdecea;border:1px solid #f5c6cb;color:#a02622;font-size:11px;font-weight:700;
-            padding:8px 12px;border-radius:4px;margin:10px 0;text-align:center;}
-    .items{font-size:12px;margin-top:6px;}
-    .items th{background:#2c3e50;color:#fff;padding:9px 8px;border:1px solid #ddd;text-align:left;font-size:11px;
-              text-transform:uppercase;letter-spacing:.3px;}
-    .items td{border:1px solid #ddd;padding:8px;vertical-align:top;}
-    .items tr:nth-child(even){background:#f2f2f2;}
+    body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#111;margin:0;padding:18px;font-size:12px;}
+    .sheet{border:2.5px solid #000;}
+    table{border-collapse:collapse;width:100%;}
+    /* ── Header ── */
+    .hdr{display:flex;border-bottom:2px solid #000;}
+    .hdr .logo{flex:1;padding:14px 16px;}
+    .hdr .logo .l1{font-size:26px;font-weight:900;letter-spacing:1px;line-height:1;}
+    .hdr .logo .l1 .b{color:${QDOC.logo1};}
+    .hdr .logo .l1 .o{color:${QDOC.logo2};}
+    .hdr .logo .l2{font-size:11px;font-weight:700;color:${QDOC.logo1};letter-spacing:2px;margin-top:4px;}
+    .hdr .logo .l3{font-size:10px;color:#555;margin-top:4px;}
+    .hdr .qbox{width:230px;display:flex;align-items:center;justify-content:center;border-left:2px solid #000;}
+    .hdr .qbox .qb{border:1.5px solid ${QDOC.accent};color:#111;font-size:20px;font-weight:800;letter-spacing:2px;padding:10px 26px;}
+    /* ── Info grid ── */
+    .info{display:flex;border-bottom:2px solid #000;}
+    .info .col{width:50%;}
+    .info .col.r{border-left:2px solid #000;}
+    .gt{width:100%;}
+    .gt td{border:1px solid #000;padding:6px 9px;font-size:12px;}
+    .band{background:${QDOC.band};font-weight:800;}
+    .gt td.lbl{font-weight:800;white-space:nowrap;width:38%;}
+    .gt td.lbl.r{width:46%;}
+    /* ── Items ── */
+    .items{border-bottom:2px solid #000;}
+    .items th{background:${QDOC.band};color:#111;border:1px solid #000;padding:7px 6px;font-size:11px;font-weight:800;text-align:center;}
+    .items td{border:1px solid #000;padding:6px 7px;vertical-align:middle;font-size:11px;}
     .items td.c{text-align:center;white-space:nowrap;}
     .items td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
-    .items td.model{font-weight:700;color:#2c3e50;white-space:nowrap;}
-    .items tfoot td{border:1px solid #ddd;background:#2c3e50;color:#fff;font-weight:800;font-size:13px;padding:10px;}
-    .items tfoot td.num{text-align:right;}
-    .q-note{font-size:11px;color:#a02622;margin:8px 0;}
-    .q-terms{margin-top:18px;font-size:11px;}
-    .q-terms h3{color:#2c3e50;font-size:13px;border-bottom:1px solid #ddd;padding-bottom:4px;margin-bottom:6px;}
-    .q-terms ol{margin:0;padding-left:18px;line-height:1.6;}
-    .q-prep{margin-top:18px;font-size:11px;background:#f5f7fa;border:1px solid #e0e6ee;border-radius:6px;padding:12px 14px;}
-    .q-prep strong{color:#2c3e50;}
-    .q-foot{margin-top:14px;border-top:1px solid #ddd;padding-top:8px;font-size:10px;color:#888;text-align:center;}
-    @media print{ body{padding:0;} @page{margin:12mm;} }
+    .items td.model{font-weight:700;white-space:nowrap;}
+    .items td.desc .dt{font-weight:700;}
+    .secband td{background:${QDOC.band};font-weight:800;text-align:center;letter-spacing:.5px;border:1px solid #000;padding:6px;}
+    /* ── Totals ── */
+    .tot{border-bottom:2px solid #000;}
+    .tot td{border:1px solid #000;padding:8px 10px;}
+    .tot .words{font-size:15px;font-weight:800;text-align:center;}
+    .tot .tl{text-align:right;font-weight:800;width:16%;white-space:nowrap;}
+    .tot .tv{text-align:right;font-weight:800;width:14%;white-space:nowrap;font-variant-numeric:tabular-nums;}
+    .tot .grand{background:${QDOC.band};}
+    .q-conf{background:#fdecea;border:1px solid #f5c6cb;color:#a02622;font-size:11px;font-weight:700;padding:7px 12px;margin:0;text-align:center;border-bottom:2px solid #000;}
+    /* ── Terms ── */
+    .terms{padding:14px 16px;font-size:11px;}
+    .terms h3{color:${QDOC.accent};font-size:13px;font-weight:800;text-decoration:underline;margin:0 0 10px;}
+    .terms .sec{color:${QDOC.accent};font-size:12px;font-weight:800;margin:12px 0 4px;}
+    .terms ul{margin:0;padding-left:18px;line-height:1.7;}
+    .terms .pay div{margin:2px 0;font-weight:700;}
+    .sign{display:flex;justify-content:space-between;margin:34px 16px 10px;font-size:12px;font-weight:800;}
+    .sign span{border-top:1px solid #000;padding-top:4px;text-decoration:underline;}
+    .foot{text-align:center;font-size:10px;color:#333;border-top:2px solid #000;padding:8px;}
+    .foot b{color:${QDOC.logo1};font-size:12px;}
+    @media print{ body{padding:0;} @page{margin:8mm;} }
   `;
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(ref)}</title><style>${css}</style></head>
   <body>
-    <div class="q-header">
-      <h1>${esc(BRAND.company)}</h1>
-      <div class="q-quote">QUOTATION</div>
-      <div class="q-tag">${esc(BRAND.tagline)}</div>
+  <div class="sheet">
+    <!-- Header -->
+    <div class="hdr">
+      <div class="logo">
+        <div class="l1"><span class="b">UNIVERSE</span> <span class="o">CONTROL</span></div>
+        <div class="l2">SECURITY SYSTEM</div>
+        <div class="l3">${esc(BRAND.tagline)}</div>
+      </div>
+      <div class="qbox"><div class="qb">QUOTATION</div></div>
     </div>
-    <table class="q-info"><tbody>${infoRows}</tbody></table>
+
+    <!-- Info grid -->
+    <div class="info">
+      <div class="col l">
+        <table class="gt">
+          <tr><td class="band" colspan="2">Customer Details:</td></tr>
+          <tr><td class="lbl">To</td><td>${esc(client||'—')}</td></tr>
+          <tr><td class="lbl">Attention</td><td>${esc(attn||'—')}</td></tr>
+          <tr><td class="lbl">Email</td><td>${esc(email||'—')}</td></tr>
+          <tr><td class="lbl">Location</td><td>${esc(addr||delivery||'—')}</td></tr>
+        </table>
+      </div>
+      <div class="col r">
+        <table class="gt">
+          <tr><td class="lbl r band">Date</td><td class="band">${esc(date||'—')}</td></tr>
+          <tr><td class="lbl r">Quote No.</td><td>${esc(ref)}</td></tr>
+          <tr><td class="lbl r">Pricing Level</td><td>${esc(isDPP?'DPP':'MSRP')}</td></tr>
+          <tr><td class="lbl r">Validity</td><td>${esc(validity)}</td></tr>
+          <tr><td class="lbl r">Prepared By</td><td>${esc(preparer||'—')}</td></tr>
+        </table>
+      </div>
+    </div>
     ${conf}
+
+    <!-- Items -->
     <table class="items">
       <thead><tr>
-        <th style="width:34px">#</th><th>Model</th><th>Description</th>
-        <th style="width:42px">Qty</th><th style="width:48px">UOM</th>
-        <th style="width:80px">Warranty</th>
-        <th style="width:110px">Unit (QAR)</th><th style="width:120px">Total (QAR)</th>
+        <th style="width:30px">S.No</th>
+        <th>Description</th>
+        <th style="width:60px">Brand</th>
+        <th style="width:150px">Model / Part No</th>
+        <th style="width:46px">Units</th>
+        <th style="width:40px">Qty</th>
+        <th style="width:64px">Warranty</th>
+        <th style="width:90px">Unit Price (QAR)</th>
+        <th style="width:96px">Total (QAR)</th>
       </tr></thead>
-      <tbody>${itemRows}</tbody>
-      <tfoot><tr>
-        <td colspan="7" style="text-align:right">NET TOTAL (${isDPP?'DPP':'MSRP'}) QAR</td>
-        <td class="num">QAR ${money(net)}</td>
-      </tr></tfoot>
+      <tbody>
+        <tr class="secband"><td colspan="${NCOLS}">CCTV &amp; SECURITY EQUIPMENT</td></tr>
+        ${itemRows}
+      </tbody>
     </table>
-    ${tbdNote}
-    <div class="q-terms">
-      <h3>Terms &amp; Conditions</h3>
-      <ol>
-        <li>Warranty: As specified per line item. All warranties are manufacturer warranties from date of invoice.</li>
-        <li>Payment: ${esc(terms)}.</li>
-        <li>Delivery: ${esc(delivery)}.</li>
-        <li>Pricing: ${esc(lvlLabel)}. All prices in QAR exclusive of VAT.${isDPP?' CONFIDENTIAL.':''}</li>
-        <li>Territory: Products supplied for use within Qatar in compliance with MOI regulations.</li>
-        <li>Support: Technical support provided by ${esc(BRAND.company)}, Doha.</li>
-      </ol>
+
+    <!-- Totals -->
+    <table class="tot">
+      <tr>
+        <td class="words" rowspan="${disc>0?3:2}">Amount in Words: Qatari Riyal ${esc(inWords)} Only.</td>
+        <td class="tl">Subtotal</td><td class="tv">${money(gross)}</td>
+      </tr>${discRow}
+      <tr class="grand"><td class="tl">Total Amount</td><td class="tv">${money(net)}</td></tr>
+    </table>
+
+    <!-- Terms -->
+    <div class="terms">
+      <h3>Terms and Conditions</h3>
+      <div class="sec">Payment Terms :</div>
+      <ul><li>${esc(terms)}.</li></ul>
+      <div class="sec">Scope of Work :</div>
+      <ul><li>Material Supply as per the quoted list.</li><li>MOI / SSD / DSA approval where applicable.</li></ul>
+      <div class="sec">Warranty :</div>
+      <ul><li>As specified per line item — manufacturer warranty from date of invoice. Does not cover power supplies, batteries, locally purchased items, or damage from misuse.</li></ul>
+      <div class="sec">Pricing :</div>
+      <ul><li>${esc(lvlLabel)}. All prices in QAR (Qatari Riyals), exclusive of VAT.${isDPP?' CONFIDENTIAL.':''}</li></ul>
+      <div class="sec">Validity :</div>
+      <ul><li>${esc(validity)}.</li></ul>
+      <div class="sec">Delivery :</div>
+      <ul><li>${esc(delivery)}.</li></ul>
+      <div class="sec">Note :</div>
+      <ul><li>All the above prices are in QAR (Qatari Riyals).</li><li>Any MOI additional quantity variation will be considered separately.</li></ul>
+      <div class="sec">Payment Details :</div>
+      <div class="pay">
+        <div>Account Holder: Universe Control Security System</div>
+        <div>Technical &amp; commercial support: ${esc(BRAND.company)}, Doha — Qatar.</div>
+      </div>
     </div>
-    <div class="q-prep">
-      Prepared by: <strong>${esc(preparer || '—')}</strong>${pTitle?` | ${esc(pTitle)}`:''} | ${esc(BRAND.company)}<br>
-      ${esc(BRAND.address)}${pPhone?` | ${esc(pPhone)}`:''}${pEmail?` | ${esc(pEmail)}`:''}
+
+    <div class="sign">
+      <span>Customer Sign.</span>
+      <span>Authorized Sign.</span>
     </div>
-    <div class="q-foot">Quotation Ref: ${esc(ref)} | Generated: ${esc(date)}${isDPP?' | CONFIDENTIAL — DPP pricing for authorized partner only.':''}</div>
+
+    <div class="foot">
+      <b>${esc(BRAND.company)}</b><br>
+      ${esc(BRAND.address)}<br>
+      ${pPhone?('Tel: '+esc(pPhone)+'  '):''}${pEmail?('E-mail: '+esc(pEmail)):''}${pTitle?('  ·  '+esc(pTitle)):''}
+    </div>
+  </div>
   </body></html>`;
 }
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }

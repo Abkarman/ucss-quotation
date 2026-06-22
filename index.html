@@ -135,9 +135,16 @@
   .group-tally  { background: #EEF2F9; border: 1px solid #C5D0E8; }
   .group-tally  .action-group-label { color: var(--navy); }
   .group-tally  .action-group-label::after { background: var(--navy); }
-  .group-customer { background: #F0FAF0; border: 1px solid #B8DDB8; }
-  .group-customer .action-group-label { color: var(--green); }
-  .group-customer .action-group-label::after { background: var(--green); }
+  /* Customer Quotation group — brand schema: logo blue #1B4F8A + orange #E8821E */
+  .group-customer { background: #EAF3FB; border: 1px solid #BBD6EF; }
+  .group-customer .action-group-label { color: #1B4F8A; }
+  .group-customer .action-group-label::after { background: #1B4F8A; }
+  .group-customer .btn-brand   { background: #1B4F8A; color: #fff; }
+  .group-customer .btn-brand:hover   { background: #143D6B; transform: translateY(-1px); box-shadow: 0 3px 8px rgba(27,79,138,0.30); }
+  .group-customer .btn-excel   { background: #E8821E; color: #fff; }
+  .group-customer .btn-excel:hover   { background: #CC7016; transform: translateY(-1px); box-shadow: 0 3px 8px rgba(232,130,30,0.30); }
+  .group-customer .btn-outline { background: #fff; border: 1px solid #1B4F8A; color: #1B4F8A; }
+  .group-customer .btn-outline:hover { background: #EAF3FB; }
   .action-row { display: flex; gap: 8px; flex-wrap: wrap; }
   .btn {
     padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer;

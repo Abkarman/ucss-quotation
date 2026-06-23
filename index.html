@@ -238,6 +238,14 @@
     transition: border-color 0.15s;
   }
   .auth-field input:focus { outline: none; border-color: #2C3E50; background: #fff; }
+  .auth-field select {
+    width: 100%; border: 1px solid #D0D7E3; border-radius: 6px;
+    padding: 10px 12px; font-size: 13px; font-family: inherit; background: #FAFBFC; color:#222;
+  }
+  .auth-field select:focus { outline: none; border-color: #2C3E50; background: #fff; }
+  .auth-qbox { background:#F4F6FA; border:1px solid #D0D7E3; border-radius:6px; padding:9px 12px; font-size:13px; font-weight:600; color:#2C3E50; }
+  .auth-link { text-align:center; font-size:12px; color:#2C3E50; cursor:pointer; margin-top:12px; text-decoration:underline; }
+  .auth-link:hover { color:#000066; }
   .auth-btn {
     width: 100%; background: #2C3E50; color: #fff; border: none;
     border-radius: 7px; padding: 12px; font-size: 14px; font-weight: 700;
@@ -283,11 +291,12 @@
       <p>Quotation Generator — Authorized Access Only</p>
     </div>
     <hr class="auth-divider">
-    <div class="auth-tabs">
+    <div class="auth-tabs" id="authTabs">
       <div class="auth-tab active" id="tabLogin" onclick="authShowTab('login')">Sign In</div>
       <div class="auth-tab" id="tabRegister" onclick="authShowTab('register')">Register</div>
     </div>
 
+    <!-- Sign In -->
     <div id="authLoginForm">
       <div class="auth-field">
         <label>Company Email</label>
@@ -299,8 +308,10 @@
                onkeydown="if(event.key==='Enter')authLogin()">
       </div>
       <button class="auth-btn" onclick="authLogin()">Sign In</button>
+      <div class="auth-link" onclick="authShowReset()">Forgot password?</div>
     </div>
 
+    <!-- Register -->
     <div id="authRegisterForm" style="display:none">
       <div class="auth-field">
         <label>Full Name</label>
@@ -316,10 +327,56 @@
       </div>
       <div class="auth-field">
         <label>Confirm Password</label>
-        <input type="password" id="authRegPass2" placeholder="Repeat password" autocomplete="new-password"
+        <input type="password" id="authRegPass2" placeholder="Repeat password" autocomplete="new-password">
+      </div>
+      <div class="auth-field">
+        <label>Security Question <span style="color:#888;font-size:10px">(for password recovery)</span></label>
+        <select id="authRegQ">
+          <option value="What was the name of your first school?">What was the name of your first school?</option>
+          <option value="What is your mother's maiden name?">What is your mother's maiden name?</option>
+          <option value="What was your first car or vehicle?">What was your first car or vehicle?</option>
+          <option value="What city were you born in?">What city were you born in?</option>
+          <option value="What is your favourite team?">What is your favourite team?</option>
+        </select>
+      </div>
+      <div class="auth-field">
+        <label>Security Answer</label>
+        <input type="text" id="authRegA" placeholder="Remember this — needed to reset your password"
                onkeydown="if(event.key==='Enter')authRegister()">
       </div>
       <button class="auth-btn" onclick="authRegister()">Create Account</button>
+    </div>
+
+    <!-- Reset Password -->
+    <div id="authResetForm" style="display:none">
+      <div class="auth-field">
+        <label>Company Email</label>
+        <input type="email" id="authResetEmail" placeholder="yourname@universe-qa.net" autocomplete="email"
+               onkeydown="if(event.key==='Enter')authResetLookup()">
+      </div>
+      <button class="auth-btn" id="authResetLookupBtn" onclick="authResetLookup()">Continue</button>
+
+      <div id="authResetStep2" style="display:none">
+        <div class="auth-field" id="authResetQField">
+          <label>Security Question</label>
+          <div class="auth-qbox" id="authResetQ"></div>
+        </div>
+        <div class="auth-field" id="authResetAField">
+          <label>Your Answer</label>
+          <input type="text" id="authResetA" placeholder="Your security answer">
+        </div>
+        <div class="auth-field">
+          <label>New Password</label>
+          <input type="password" id="authResetPass" placeholder="Min 6 characters" autocomplete="new-password">
+        </div>
+        <div class="auth-field">
+          <label>Confirm New Password</label>
+          <input type="password" id="authResetPass2" placeholder="Repeat new password" autocomplete="new-password"
+                 onkeydown="if(event.key==='Enter')authResetSubmit()">
+        </div>
+        <button class="auth-btn" onclick="authResetSubmit()">Reset Password</button>
+      </div>
+      <div class="auth-link" onclick="authShowTab('login')">← Back to Sign In</div>
     </div>
 
     <div class="auth-msg" id="authMsg"></div>
@@ -806,16 +863,28 @@ function authGetUsers() {
 function authSaveUsers(u) { localStorage.setItem(AUTH_KEY, JSON.stringify(u)); }
 
 function authShowTab(tab) {
+  document.getElementById('authTabs').style.display = '';
   document.getElementById('authLoginForm').style.display    = tab === 'login'    ? '' : 'none';
   document.getElementById('authRegisterForm').style.display = tab === 'register' ? '' : 'none';
+  document.getElementById('authResetForm').style.display    = 'none';
   document.getElementById('tabLogin').classList.toggle('active',    tab === 'login');
   document.getElementById('tabRegister').classList.toggle('active', tab === 'register');
-  document.getElementById('authMsg').textContent = '';
+  authSetMsg('');
+}
+
+function authShowReset() {
+  document.getElementById('authTabs').style.display = 'none';
+  document.getElementById('authLoginForm').style.display    = 'none';
+  document.getElementById('authRegisterForm').style.display = 'none';
+  document.getElementById('authResetForm').style.display    = '';
+  document.getElementById('authResetStep2').style.display   = 'none';
+  document.getElementById('authResetEmail').value = document.getElementById('authLoginEmail').value || '';
+  authSetMsg('');
 }
 
 function authSetMsg(msg, type) {
   const el = document.getElementById('authMsg');
-  el.textContent = msg;
+  el.textContent = msg || '';
   el.className = 'auth-msg ' + (type || '');
 }
 
@@ -837,7 +906,9 @@ async function authRegister() {
   const email = document.getElementById('authRegEmail').value.trim().toLowerCase();
   const pass  = document.getElementById('authRegPass').value;
   const pass2 = document.getElementById('authRegPass2').value;
-  if (!name || !email || !pass || !pass2) { authSetMsg('Please fill in all fields.', 'error'); return; }
+  const secQ  = document.getElementById('authRegQ').value;
+  const secA  = document.getElementById('authRegA').value.trim();
+  if (!name || !email || !pass || !pass2 || !secA) { authSetMsg('Please fill in all fields, including the security answer.', 'error'); return; }
   if (!email.endsWith('@' + ALLOWED_DOMAIN)) {
     authSetMsg('Registration is restricted to @' + ALLOWED_DOMAIN + ' email addresses.', 'error'); return;
   }
@@ -845,15 +916,67 @@ async function authRegister() {
   if (pass.length < 6) { authSetMsg('Password must be at least 6 characters.', 'error'); return; }
   const users = authGetUsers();
   if (users.find(u => u.email === email)) {
-    authSetMsg('An account with this email already exists.', 'error'); return;
+    authSetMsg('This email is already registered. Use "Forgot password?" on the Sign In tab to reset it.', 'error');
+    return;
   }
-  const hash    = await sha256(pass);
-  const newUser = { email, name, passwordHash: hash };
+  const passHash = await sha256(pass);
+  const ansHash  = await sha256(secA.toLowerCase());
+  const newUser = { email, name, passwordHash: passHash, securityQ: secQ, securityAHash: ansHash };
   users.push(newUser);
   authSaveUsers(users);
   sessionStorage.setItem(SESSION_KEY, JSON.stringify({ email, name }));
   authSetMsg('Account created! Welcome, ' + name + '.', 'success');
   setTimeout(() => authUnlock(newUser), 700);
+}
+
+/* ── Password recovery (security question) ── */
+let _resetEmail = null;
+
+function authResetLookup() {
+  const email = document.getElementById('authResetEmail').value.trim().toLowerCase();
+  if (!email) { authSetMsg('Enter your account email.', 'error'); return; }
+  const u = authGetUsers().find(x => x.email === email);
+  if (!u) { authSetMsg('No account found with this email.', 'error'); return; }
+  _resetEmail = email;
+  const qBox = document.getElementById('authResetQ');
+  const qField = document.getElementById('authResetQField');
+  const aField = document.getElementById('authResetAField');
+  if (u.securityQ) {
+    qBox.textContent = u.securityQ;
+    qField.style.display = '';
+    aField.style.display = '';
+    authSetMsg('Answer your security question and set a new password.', 'success');
+  } else {
+    // Legacy account with no recovery question — allow direct reset (data is local to this browser)
+    qField.style.display = 'none';
+    aField.style.display = 'none';
+    authSetMsg('No security question on file for this account — set a new password below.', 'success');
+  }
+  document.getElementById('authResetStep2').style.display = '';
+}
+
+async function authResetSubmit() {
+  if (!_resetEmail) { authSetMsg('Start again — enter your email.', 'error'); return; }
+  const users = authGetUsers();
+  const idx = users.findIndex(x => x.email === _resetEmail);
+  if (idx < 0) { authSetMsg('Account not found — start again.', 'error'); return; }
+  const u = users[idx];
+  const ans = document.getElementById('authResetA').value.trim();
+  const p1  = document.getElementById('authResetPass').value;
+  const p2  = document.getElementById('authResetPass2').value;
+  if (!p1 || !p2) { authSetMsg('Enter and confirm your new password.', 'error'); return; }
+  if (p1 !== p2)  { authSetMsg('Passwords do not match.', 'error'); return; }
+  if (p1.length < 6) { authSetMsg('Password must be at least 6 characters.', 'error'); return; }
+  if (u.securityQ) {
+    if (!ans) { authSetMsg('Answer your security question.', 'error'); return; }
+    const ansHash = await sha256(ans.toLowerCase());
+    if (ansHash !== u.securityAHash) { authSetMsg('Incorrect security answer.', 'error'); return; }
+  }
+  users[idx].passwordHash = await sha256(p1);
+  authSaveUsers(users);
+  authSetMsg('Password reset successfully — you can now sign in.', 'success');
+  const email = _resetEmail; _resetEmail = null;
+  setTimeout(() => { authShowTab('login'); document.getElementById('authLoginEmail').value = email; }, 1100);
 }
 
 function authUnlock(user) {

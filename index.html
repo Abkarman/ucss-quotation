@@ -746,20 +746,7 @@ function setupAutocomplete(input) {
         e.preventDefault();
         input.value = s.n;
         const idMatch = input.id.match(/name-(\d+)/);
-        if (idMatch) {
-          const lineId = idMatch[1];
-          const rateEl = document.getElementById('rate-' + lineId);
-          if (rateEl) {
-            const p = findPrice(s.n);
-            // Always apply the list price when the selected item is in the price list;
-            // leave any manually-typed rate untouched for items with no price entry.
-            if (p) {
-              const level = document.getElementById('priceLevel')?.value || 'si';
-              rateEl.value = round2(p[level] * USD_TO_QAR).toFixed(2);
-            }
-          }
-          applyLineWarranty(lineId, s.n);
-        }
+        if (idMatch) applyLineFromModel(idMatch[1], s.n);
         recalc();
         closeDD();
       });
@@ -1100,7 +1087,7 @@ function addLine() {
   setupAutocomplete(nameInput);
   nameInput.addEventListener('blur', () => {
     const n = nameInput.value.trim();
-    if (n) applyLineWarranty(id, n);
+    if (n) applyLineFromModel(id, n);
   });
   nameInput.focus();
   renumber();
@@ -1218,6 +1205,19 @@ function autoWarranty(name) {
 
   // Everything else → 1 Year
   return '1 Year';
+}
+
+/* Re-fill rate + warranty whenever a line's model changes (autocomplete pick OR manual edit). */
+function applyLineFromModel(lineId, name) {
+  const rateEl = document.getElementById('rate-' + lineId);
+  const p = findPrice(name);
+  if (rateEl && p) {
+    const level = document.getElementById('priceLevel')?.value || 'si';
+    rateEl.value = round2(p[level] * USD_TO_QAR).toFixed(2);
+    recalcLineDisc(lineId);
+  }
+  applyLineWarranty(lineId, name);
+  recalc();
 }
 
 function applyLineWarranty(lineId, name) {

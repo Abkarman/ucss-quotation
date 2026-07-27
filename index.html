@@ -422,7 +422,21 @@
         ⬆ Upload Stock Report (.xlsx)
         <input type="file" id="stockFileInput" accept=".xlsx" style="display:none" onchange="loadStockFromExcel(this.files[0])">
       </label>
+      <label style="
+        display:inline-flex;align-items:center;gap:8px;cursor:pointer;
+        background:#155C3A;color:#fff;font-size:13px;font-weight:700;
+        padding:10px 20px;border-radius:6px;transition:background 0.18s;
+      " onmouseover="this.style.background='#0f4429'" onmouseout="this.style.background='#155C3A'">
+        🧮 Upload Cost File (Tally .xlsx)
+        <input type="file" id="costFileInput" accept=".xlsx" style="display:none" onchange="loadCostFromExcel(this.files[0])">
+      </label>
       <button class="btn btn-outline" type="button" onclick="resetPriceList()" style="font-size:12px">↺ Reset price list</button>
+    </div>
+    <div style="margin-top:8px">
+      <div id="costUploadStatus" style="font-size:13px;color:var(--gray)">
+        <span style="color:#155C3A;font-weight:700">Costing:</span> upload Tally weighted-average / landed cost (columns: <em>Model</em> + <em>Cost</em>) to enable profit &amp; margin
+      </div>
+      <div style="font-size:11px;color:#aaa;margin-top:3px"><strong id="costCount">0</strong> costed models — matched by model (DH- prefix &amp; suffix rules)</div>
     </div>
     <div style="display:flex;gap:28px;flex-wrap:wrap;margin-top:10px">
       <div>
@@ -606,13 +620,13 @@
           <button class="btn btn-outline" onclick="previewExcel()">👁 Preview</button>
         </div>
         <div class="action-row" style="margin-top:6px">
-          <button class="btn btn-excel" onclick="exportPriceList()">📋 Export Price List</button>
-          <button class="btn btn-outline" onclick="previewPriceList()">👁 Preview</button>
+          <button class="btn btn-brand" style="background:#155C3A" onclick="exportCosting()">🧮 Costing Sheet (Internal)</button>
+          <button class="btn btn-outline" onclick="previewCosting()">👁 Preview</button>
         </div>
         <div class="action-row" style="margin-top:6px">
           <button class="btn btn-outline" onclick="listUnpricedStock()">⚠ Stocked Items — No Price</button>
         </div>
-        <div style="font-size:11px;color:var(--gray);margin-top:2px">Branded PDF quotation · Excel · Price list (DPP &amp; MSRP)</div>
+        <div style="font-size:11px;color:var(--gray);margin-top:2px">Branded PDF quotation · Excel · <strong>Internal costing (profit &amp; margin)</strong></div>
       </div>
       <div style="display:flex;align-items:flex-end;padding-bottom:14px">
         <button class="btn btn-reset" onclick="resetForm()">↺ Reset Form</button>
@@ -1014,6 +1028,7 @@ function authInit() {
 window.addEventListener('DOMContentLoaded', () => {
   authInit();
   loadSavedPriceList();
+  loadCostStores();
   const today = new Date();
   const yy = String(today.getFullYear()).slice(2);
 
@@ -1669,7 +1684,7 @@ function loadStockFromExcel(file) {
       const aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:null, raw:true});
 
       // Find header row by locating 'MODEL NO.'
-      let hRow = -1, nameCol = -1, aeroCol = -1, ud35Col = -1, rsvdCol = -1;
+      let hRow = -1, nameCol = -1, aeroCol = -1, ud35Col = -1, rsvdCol = -1, partCol = -1;
       for (let i = 0; i < Math.min(aoa.length, 10); i++) {
         const row = aoa[i];
         for (let j = 0; j < row.length; j++) {
@@ -1678,6 +1693,7 @@ function loadStockFromExcel(file) {
           if (c.includes('AERO'))   aeroCol = j;
           if (c.includes('UD35'))   ud35Col = j;
           if (c.includes('RESERV')) rsvdCol = j;
+          if (c.includes('PARTNUMBER2') || c.includes('PART NUMBER') || c === 'PART NO.' || c === 'PART NO') partCol = j;
         }
         if (hRow >= 0) break;
       }
@@ -1696,8 +1712,9 @@ function loadStockFromExcel(file) {
         const a = Math.max(0, Math.round(parseFloat(row[aeroCol]) || 0));
         const u = Math.max(0, Math.round(parseFloat(row[ud35Col])  || 0));
         const r = rsvdCol >= 0 ? Math.max(0, Math.round(parseFloat(row[rsvdCol]) || 0)) : 0;
-        if (map[raw]) { map[raw].a += a; map[raw].u += u; map[raw].r += r; }
-        else            map[raw] = {n: raw, a, u, r};
+        const pn = partCol >= 0 ? String(row[partCol] || '').split('\n')[0].trim() : '';
+        if (map[raw]) { map[raw].a += a; map[raw].u += u; map[raw].r += r; if (pn && !map[raw].p) map[raw].p = pn; }
+        else            map[raw] = {n: raw, a, u, r, p: pn};
       }
 
       const items = Object.values(map).sort((a,b) => a.n.localeCompare(b.n));
@@ -1843,6 +1860,7 @@ function numberToWords(n) {
 
 /* ════════════ Excel styling helpers (xlsx-js-style) ════════════ */
 const XL_MONEY = '#,##0.00';
+const XL_PCT   = '0.0%';
 function xlB() { const s = {style:'thin', color:{rgb:'C8CED8'}}; return {top:s,bottom:s,left:s,right:s}; }
 function xlStyle(cls) {
   const base = { border: xlB(), alignment:{vertical:'center', wrapText:false} };
@@ -1859,10 +1877,24 @@ function xlStyle(cls) {
     case 'section':  return {...base, font:{bold:true,sz:10}, fill:{fgColor:{rgb:'FFF7E6'}}};
     case 'note':     return {...base, font:{italic:true,sz:9,color:{rgb:'888888'}}, alignment:{horizontal:'center',vertical:'center'}};
     case 'sign':     return {...base, font:{bold:true,sz:10,color:{rgb:'2C3E50'}}, alignment:{horizontal:'right',vertical:'center'}};
+    /* ── Costing sheet styles ── */
+    case 'c_banner': return {...base, font:{bold:true,sz:16,color:{rgb:'FFFFFF'},name:'Arial'}, fill:{fgColor:{rgb:'E8610A'}}, alignment:{horizontal:'center',vertical:'center'}};
+    case 'c_sub':    return {...base, font:{italic:true,sz:9,color:{rgb:'FFFFFF'},name:'Arial'}, fill:{fgColor:{rgb:'E8610A'}}, alignment:{horizontal:'center',vertical:'center'}};
+    case 'c_hdr':    return {...base, font:{bold:true,sz:10,color:{rgb:'FFFFFF'},name:'Arial'}, fill:{fgColor:{rgb:'1B3A6B'}}, alignment:{horizontal:'center',vertical:'center',wrapText:true}};
+    case 'c_txt':    return {...base, font:{sz:10,name:'Arial'}, alignment:{horizontal:'left',vertical:'center'}};
+    case 'c_ctr':    return {...base, font:{sz:10,name:'Arial'}, alignment:{horizontal:'center',vertical:'center'}};
+    case 'c_money':  return {...base, font:{sz:10,name:'Arial'}, alignment:{horizontal:'right',vertical:'center'}, numFmt:XL_MONEY};
+    case 'c_quote':  return {...base, font:{sz:10,bold:true,color:{rgb:'0000FF'},name:'Arial'}, alignment:{horizontal:'right',vertical:'center'}, numFmt:XL_MONEY};
+    case 'c_pct':    return {...base, font:{sz:10,name:'Arial'}, alignment:{horizontal:'right',vertical:'center'}, numFmt:XL_PCT};
+    case 'c_neg':    return {...base, font:{sz:10,bold:true,color:{rgb:'AA0000'},name:'Arial'}, fill:{fgColor:{rgb:'FDE7E7'}}, alignment:{horizontal:'right',vertical:'center'}, numFmt:XL_PCT};
+    case 'c_totlbl': return {...base, font:{bold:true,sz:11,color:{rgb:'155C3A'},name:'Arial'}, fill:{fgColor:{rgb:'D1F5E4'}}, alignment:{horizontal:'right',vertical:'center'}};
+    case 'c_tot':    return {...base, font:{bold:true,sz:11,color:{rgb:'155C3A'},name:'Arial'}, fill:{fgColor:{rgb:'D1F5E4'}}, alignment:{horizontal:'right',vertical:'center'}, numFmt:XL_MONEY};
+    case 'c_totpct': return {...base, font:{bold:true,sz:11,color:{rgb:'155C3A'},name:'Arial'}, fill:{fgColor:{rgb:'D1F5E4'}}, alignment:{horizontal:'right',vertical:'center'}, numFmt:XL_PCT};
+    case 'c_note':   return {...base, border:{}, font:{italic:true,sz:9,color:{rgb:'555555'},name:'Arial'}, alignment:{horizontal:'left',vertical:'center'}};
     default:         return base;
   }
 }
-function buildStyledSheet(aoa, merges, styleMap, cols, NC) {
+function buildStyledSheet(aoa, merges, styleMap, cols, NC, formulaMap) {
   // propagate the anchor's class across each merge range so borders/fills extend
   merges.forEach(m => {
     const cls = styleMap[m.s.r+','+m.s.c];
@@ -1877,6 +1909,9 @@ function buildStyledSheet(aoa, merges, styleMap, cols, NC) {
     for (let C=0; C<NC; C++) {
       const addr = XLSX.utils.encode_cell({r:R,c:C});
       if (!ws[addr]) ws[addr] = {t:'s', v:''};
+      // Live formula for this cell (recalculates when opened / cells edited)
+      const f = formulaMap && formulaMap[R+','+C];
+      if (f) { ws[addr] = {t:'n', f: f}; }
       ws[addr].s = xlStyle(styleMap[R+','+C] || 'cell');
     }
   }
@@ -2229,6 +2264,325 @@ function previewPriceList() {
   if (!m) { alert('Add at least one line item first.'); return; }
   m.previewTitle = '📋 Price List — preview';
   renderSheetPreview(m, exportPriceList, '📋 Download .xlsx');
+}
+
+/* ════════════════════════════════════════════════════════════════
+   COSTING SHEET (Internal) — profit / margin vs real cost
+   ════════════════════════════════════════════════════════════════ */
+let COST        = {};   // model -> avg/landed cost (from uploaded Tally file)
+let COST_MANUAL = {};   // model -> manually entered cost
+let STRATEGY    = {};   // model -> pricing-strategy label
+const COST_KEY = 'ucss_cost_file', COSTMAN_KEY = 'ucss_cost_manual', STRAT_KEY = 'ucss_strategy';
+
+function loadCostStores() {
+  try { COST        = JSON.parse(localStorage.getItem(COST_KEY)    || '{}'); } catch { COST = {}; }
+  try { COST_MANUAL = JSON.parse(localStorage.getItem(COSTMAN_KEY) || '{}'); } catch { COST_MANUAL = {}; }
+  try { STRATEGY    = JSON.parse(localStorage.getItem(STRAT_KEY)   || '{}'); } catch { STRATEGY = {}; }
+  updateCostStatus();
+}
+function saveCostStores() {
+  try {
+    localStorage.setItem(COST_KEY,    JSON.stringify(COST));
+    localStorage.setItem(COSTMAN_KEY, JSON.stringify(COST_MANUAL));
+    localStorage.setItem(STRAT_KEY,   JSON.stringify(STRATEGY));
+  } catch(_) {}
+}
+function updateCostStatus() {
+  const c = document.getElementById('costCount');
+  if (c) c.textContent = Object.keys(COST).length;
+}
+
+/* Cost lookup with the same matching rules as the skill:
+   exact → add DH- prefix → strip "(0037)" suffix → retry both. */
+function findCost(name) {
+  if (!name) return null;
+  const tryKeys = [];
+  const push = k => { if (k && !tryKeys.includes(k)) tryKeys.push(k); };
+  push(name);
+  push('DH-' + name);
+  const noSuffix = name.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  push(noSuffix);
+  push('DH-' + noSuffix);
+  for (const k of tryKeys) if (COST[k] != null) return COST[k];
+  return null;
+}
+
+function findPartNumber(name) {
+  const s = (STOCK || []).find(x => x.n === name);
+  return (s && s.p) || '';
+}
+
+function defaultStrategy() {
+  return (document.getElementById('priceLevel')?.value === 'dpp') ? 'DPP price' : 'MSRP price';
+}
+
+function loadCostFromExcel(file) {
+  if (!file) return;
+  if (typeof XLSX === 'undefined') { alert('Excel library not loaded yet — try again.'); return; }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const wb  = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      const aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:null, raw:true});
+
+      // Locate header row: a model/name column + a cost/rate column
+      let hRow = -1, nameCol = -1, costCol = -1;
+      const isName = c => /\b(MODEL|NAME|ITEM|PARTICULAR|STOCK\s*ITEM)\b/.test(c);
+      const isCost = c => /\b(AVG|AVERAGE|LANDED|COST|RATE|VALUE)\b/.test(c);
+      for (let i = 0; i < Math.min(aoa.length, 15); i++) {
+        const row = aoa[i] || [];
+        let n = -1, k = -1;
+        for (let j = 0; j < row.length; j++) {
+          const c = String(row[j] || '').trim().toUpperCase();
+          if (n < 0 && isName(c)) n = j;
+          if (isCost(c)) k = j;   // prefer the right-most cost-like column
+        }
+        if (n >= 0 && k >= 0) { hRow = i; nameCol = n; costCol = k; break; }
+      }
+      if (hRow < 0) { alert('Could not find a Model column and a Cost/Rate column in this file.'); return; }
+
+      const map = {};
+      for (let i = hRow + 1; i < aoa.length; i++) {
+        const row = aoa[i] || [];
+        const raw = String(row[nameCol] || '').split('\n')[0].trim();
+        if (!raw) continue;
+        const val = parseFloat(String(row[costCol]).replace(/[^0-9.\-]/g, ''));
+        if (!isFinite(val) || val <= 0) continue;
+        map[raw] = round2(val);
+      }
+      if (!Object.keys(map).length) { alert('No cost rows found. Expected a Model column and a numeric Cost/Rate column.'); return; }
+
+      COST = map;
+      saveCostStores();
+      updateCostStatus();
+      const st = document.getElementById('costUploadStatus');
+      if (st) st.innerHTML = `<span style="color:#155C3A;font-weight:700">✔ Costing:</span> ${Object.keys(COST).length} costed models loaded from <em>${esc(file.name)}</em>`;
+    } catch(err) {
+      alert('Failed to read cost file: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+/* Build costing rows straight from the line-item DOM (keeps line ids for target-margin apply) */
+function getCostingRows() {
+  const rows = [];
+  document.querySelectorAll('#linesBody tr').forEach(tr => {
+    const id    = tr.id.replace('lr-', '');
+    const name  = document.getElementById('name-' + id)?.value.trim() || '';
+    if (!name || !isRecognizedModel(name)) return;
+    const qty   = parseFloat(document.getElementById('qty-'  + id)?.value) || 0;
+    const quote = parseFloat(document.getElementById('rate-' + id)?.value) || 0;
+    if (!(quote > 0)) return;
+    const p     = findPrice(name);
+    const msrp  = (p && p.si  != null) ? round2(p.si  * USD_TO_QAR) : null;
+    const dpp   = (p && p.dpp != null) ? round2(p.dpp * USD_TO_QAR) : null;
+    const man   = (COST_MANUAL[name] != null && COST_MANUAL[name] !== '') ? parseFloat(COST_MANUAL[name]) : null;
+    const auto  = findCost(name);
+    const cost  = man != null ? man : (auto != null ? auto : null);
+    const src   = man != null ? 'manual' : (auto != null ? 'file' : null);
+    rows.push({
+      id, name, qty, quote, msrp, dpp, cost, src,
+      part: findPartNumber(name),
+      strategy: STRATEGY[name] || defaultStrategy()
+    });
+  });
+  return rows;
+}
+
+/* Live UI edit handlers */
+function setStrategy(name, val) { STRATEGY[name] = val; saveCostStores(); }
+function setManualCost(name, val) {
+  if (val === '' || val == null) delete COST_MANUAL[name]; else COST_MANUAL[name] = parseFloat(val);
+  saveCostStores(); previewCosting();
+}
+function applyTargetMargin(id, marginPct) {
+  const m = parseFloat(marginPct);
+  const rows = getCostingRows();
+  const row  = rows.find(r => r.id === id);
+  if (!row || row.cost == null) { alert('Enter an Avg Cost for this item first.'); return; }
+  if (!(m >= 0) || m >= 100) { alert('Enter a target margin between 0 and 99.'); return; }
+  const price = round2(row.cost / (1 - m/100));
+  const rateEl = document.getElementById('rate-' + id);
+  if (rateEl) { rateEl.value = price.toFixed(2); recalc(); saveForm(); }
+  previewCosting();
+}
+
+/* ── Interactive preview (with negative/near-zero margin highlight) ── */
+function previewCosting() {
+  const box = document.getElementById('excelPreview');
+  const rows = getCostingRows();
+  if (!rows.length) {
+    box.innerHTML = '<p style="padding:16px;color:#a02622;font-weight:700">Add at least one recognized line item with a quote price first.</p>';
+    box.style.display = 'block'; return;
+  }
+  const NEAR = 0.05;
+  let totPrice = 0, totProfit = 0, missing = 0, flagged = 0;
+  const money2 = n => (n==null ? '—' : money(n));
+  const pct = n => (n==null ? 'N/A' : (n*100).toFixed(1)+'%');
+
+  const body = rows.map((r,i) => {
+    const profit = r.cost != null ? round2(r.quote - r.cost) : null;
+    const markup = (r.cost != null && r.cost !== 0) ? profit / r.cost : null;
+    const margin = (r.cost != null && r.quote !== 0) ? profit / r.quote : null;
+    const tPrice = round2(r.quote * r.qty);
+    const tProfit= r.cost != null ? round2(profit * r.qty) : null;
+    totPrice += tPrice; if (tProfit != null) totProfit += tProfit;
+    if (r.cost == null) missing++;
+    const bad = margin != null && margin < NEAR;
+    if (bad) flagged++;
+    const rowBg = r.cost == null ? 'background:#FFF8E1' : (bad ? 'background:#FDE7E7' : '');
+    const costCell = r.cost != null
+      ? `${money2(r.cost)} <span style="color:#999;font-size:10px">(${r.src})</span>`
+      : `<input type="number" step="0.01" placeholder="enter cost" style="width:92px;padding:3px 5px;border:1px solid #E8610A;border-radius:4px" onchange="setManualCost('${esc(r.name)}', this.value)">`;
+    return `<tr style="${rowBg}">
+      <td class="c">${i+1}</td>
+      <td style="font-weight:700;color:#1B3A6B;white-space:nowrap">${esc(r.name)}</td>
+      <td class="c">${esc(r.part||'—')}</td>
+      <td><input type="text" value="${esc(r.strategy)}" style="width:96px;padding:3px 5px;border:1px solid #ccc;border-radius:4px" onchange="setStrategy('${esc(r.name)}', this.value)"></td>
+      <td class="num">${r.msrp!=null?money2(r.msrp):'<span style=\\'color:#a02622\\'>not in list</span>'}</td>
+      <td class="num">${r.dpp!=null?money2(r.dpp):'<span style=\\'color:#a02622\\'>not in list</span>'}</td>
+      <td class="c">${r.dpp!=null&&r.cost!=null?pct((r.dpp-r.cost)/r.dpp):'N/A'}</td>
+      <td class="c">${r.msrp!=null&&r.cost!=null?pct((r.msrp-r.cost)/r.msrp):'N/A'}</td>
+      <td class="c">${r.qty}</td>
+      <td class="num" style="color:#0000FF;font-weight:700">${money2(r.quote)}</td>
+      <td class="num">${costCell}</td>
+      <td class="num">${money2(profit)}</td>
+      <td class="c">${pct(markup)}</td>
+      <td class="c" style="${bad?'color:#a02622;font-weight:800':''}">${pct(margin)}</td>
+      <td class="num">${money2(tPrice)}</td>
+      <td class="num">${money2(tProfit)}</td>
+      <td class="c" style="white-space:nowrap">
+        <input type="number" placeholder="%" title="target margin %" style="width:44px;padding:3px;border:1px solid #155C3A;border-radius:4px" id="tm-${r.id}">
+        <button style="background:#155C3A;color:#fff;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px" onclick="applyTargetMargin('${r.id}', document.getElementById('tm-${r.id}').value)">🎯</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const oMarkup = (totPrice-totProfit)!==0 ? totProfit/(totPrice-totProfit) : null;
+  const oMargin = totPrice!==0 ? totProfit/totPrice : null;
+
+  box.innerHTML = `
+    <div class="xl-head">
+      <div class="xl-title">🧮 Costing Sheet (Internal) — profit &amp; margin</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-brand" style="background:#155C3A" onclick="exportCosting()">📊 Download .xlsx</button>
+        <button class="btn btn-reset" onclick="document.getElementById('excelPreview').style.display='none'">✕ Close</button>
+      </div>
+    </div>
+    ${flagged||missing ? `<div style="margin:6px 0 10px;font-size:12px;font-weight:700;color:#a02622">
+      ${flagged?`⚠ ${flagged} item(s) at or below ${(NEAR*100).toFixed(0)}% margin (بيتباع بخسارة / هامش ضعيف). `:''}${missing?`🟡 ${missing} item(s) have no cost — enter it in the orange box.`:''}
+    </div>`:''}
+    <div style="overflow-x:auto;max-height:520px;overflow-y:auto;border:1px solid #d8dee8;border-radius:8px">
+    <table class="xl-grid" style="min-width:1200px;font-size:12px">
+      <thead><tr>
+        <th>S.No</th><th>Model</th><th>Part No.</th><th>Strategy</th><th>MSRP</th><th>DPP</th>
+        <th>Disc DPP</th><th>Disc MSRP</th><th>Qty</th><th>Quote</th><th>Avg Cost</th>
+        <th>Unit Profit</th><th>Markup</th><th>Margin</th><th>Total Price</th><th>Total Profit</th><th>🎯 Target</th>
+      </tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr style="background:#D1F5E4;color:#155C3A;font-weight:800">
+        <td colspan="11" style="text-align:right">TOTAL &nbsp; | &nbsp; Overall Markup ${pct(oMarkup)} · Overall Margin ${pct(oMargin)}</td>
+        <td colspan="3"></td>
+        <td class="num">${money(totPrice)}</td>
+        <td class="num">${money(totProfit)}</td>
+        <td></td>
+      </tr></tfoot>
+    </table></div>
+    <div style="font-size:10px;color:#888;margin-top:8px">Internal document — not for customer distribution. MSRP = SI×3.65, DPP = DPP USD×3.65. Cost from uploaded Tally file + manual entries.</div>`;
+  box.style.display = 'block';
+  document.getElementById('xmlPreview').style.display = 'none';
+  document.getElementById('successBanner').style.display = 'none';
+  box.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+/* ── Styled .xlsx export with LIVE formulas ── */
+function exportCosting() {
+  if (typeof XLSX === 'undefined') { alert('Excel library still loading — try again in a moment.'); return; }
+  const rows = getCostingRows();
+  if (!rows.length) { alert('Add at least one recognized line item with a quote price first.'); return; }
+
+  const NC = 16;
+  const aoa = [], merges = [], styleMap = {}, formulaMap = {};
+  const cls = (r,c,k) => { styleMap[r+','+c] = k; };
+  const fml = (r,c,f) => { formulaMap[r+','+c] = f; };
+  let r = 0;
+
+  // Banner
+  aoa.push(['COSTING SHEET — INTERNAL', ...Array(NC-1).fill(null)]);
+  merges.push({s:{r,c:0},e:{r,c:NC-1}}); cls(r,0,'c_banner'); r++;
+  // Subtitle
+  const sub = `Universe Control Security System  ·  ${v('partyName')||''}  ·  ${v('vchNum')||''}  ·  ${longDate(v('vchDate'))||''}  ·  NOT FOR CUSTOMER DISTRIBUTION`;
+  aoa.push([sub, ...Array(NC-1).fill(null)]);
+  merges.push({s:{r,c:0},e:{r,c:NC-1}}); cls(r,0,'c_sub'); r++;
+  // Headers
+  const HEAD = ['S. No','Model','Part Number','Pricing Strategy','MSRP Price','DPP Price','Discount from DPP %','Discount from MSRP %','Qty','Unit Price (Quote)','Avg Cost / Unit','Unit Profit','Markup %','Margin %','Total Price','Total Profit'];
+  aoa.push(HEAD.slice()); for (let c=0;c<NC;c++) cls(r,c,'c_hdr'); r++;
+
+  const firstDataExcelRow = r + 1;   // Excel is 1-based
+  rows.forEach((row, i) => {
+    const rr = r + 1;
+    const profit = row.cost != null ? round2(row.quote - row.cost) : null;
+    const margin = (row.cost != null && row.quote !== 0) ? profit/row.quote : null;
+    const negCls = (margin != null && margin < 0.05) ? 'c_neg' : 'c_pct';
+    const rowVals = [
+      i+1, row.name, row.part || '', row.strategy,
+      row.msrp != null ? row.msrp : 'not in price list',
+      row.dpp  != null ? row.dpp  : 'not in price list',
+      null, null, row.qty, row.quote,
+      row.cost != null ? row.cost : 'needs cost',
+      null, null, null, null, null
+    ];
+    aoa.push(rowVals);
+    cls(r,0,'c_ctr'); cls(r,1,'c_txt'); cls(r,2,'c_txt'); cls(r,3,'c_txt');
+    cls(r,4,'c_money'); cls(r,5,'c_money'); cls(r,6,'c_pct'); cls(r,7,'c_pct');
+    cls(r,8,'c_ctr'); cls(r,9,'c_quote'); cls(r,10,'c_money'); cls(r,11,'c_money');
+    cls(r,12, negCls); cls(r,13, negCls); cls(r,14,'c_money'); cls(r,15,'c_money');
+    // live formulas
+    fml(r,6,  `IF(AND(ISNUMBER(F${rr}),ISNUMBER(K${rr})),(F${rr}-K${rr})/F${rr},"N/A")`);
+    fml(r,7,  `IF(AND(ISNUMBER(E${rr}),ISNUMBER(K${rr})),(E${rr}-K${rr})/E${rr},"N/A")`);
+    fml(r,11, `IF(ISNUMBER(K${rr}),J${rr}-K${rr},"N/A")`);
+    fml(r,12, `IF(AND(ISNUMBER(K${rr}),K${rr}<>0),(J${rr}-K${rr})/K${rr},"N/A")`);
+    fml(r,13, `IF(AND(ISNUMBER(K${rr}),J${rr}<>0),(J${rr}-K${rr})/J${rr},"N/A")`);
+    fml(r,14, `J${rr}*I${rr}`);
+    fml(r,15, `IF(ISNUMBER(K${rr}),(J${rr}-K${rr})*I${rr},"N/A")`);
+    r++;
+  });
+  const lastDataExcelRow = r;        // Excel row of last data line
+  // TOTAL row
+  const TT = r + 1;
+  aoa.push(['TOTAL', ...Array(NC-1).fill(null)]);
+  for (let c=0;c<NC;c++) cls(r,c, c===12||c===13 ? 'c_totpct' : (c===14||c===15 ? 'c_tot' : 'c_totlbl'));
+  aoa[r][11] = 'Overall →';
+  fml(r,12, `IF((O${TT}-P${TT})=0,"N/A",P${TT}/(O${TT}-P${TT}))`);
+  fml(r,13, `IF(O${TT}=0,"N/A",P${TT}/O${TT})`);
+  fml(r,14, `SUM(O${firstDataExcelRow}:O${lastDataExcelRow})`);
+  fml(r,15, `SUM(P${firstDataExcelRow}:P${lastDataExcelRow})`);
+  r++;
+
+  // Notes
+  const manualList = Object.keys(COST_MANUAL).filter(k => COST_MANUAL[k] != null && COST_MANUAL[k] !== '');
+  const notes = [
+    '',
+    'Data sources:  MSRP = Dahua SI Price × 3.65 ; DPP = DPP SELL IN (USD) × 3.65 ; Avg Cost = uploaded Tally weighted-average / landed cost file + manual entries.',
+    'Formulas:  Discount from DPP = (DPP − Cost)/DPP ; Discount from MSRP = (MSRP − Cost)/MSRP ; Unit Profit = Quote − Cost ; Markup = Profit/Cost ; Margin = Profit/Quote.',
+    manualList.length ? ('Manually entered costs:  ' + manualList.map(k => `${k} = ${money(COST_MANUAL[k])}`).join(' ;  ')) : 'Manually entered costs:  none.',
+    'Internal document — not for customer distribution.'
+  ];
+  notes.forEach(t => {
+    aoa.push([t, ...Array(NC-1).fill(null)]);
+    merges.push({s:{r,c:0},e:{r,c:NC-1}}); cls(r,0,'c_note'); r++;
+  });
+
+  const cols = [{wch:6},{wch:34},{wch:16},{wch:16},{wch:12},{wch:12},{wch:12},{wch:13},{wch:6},{wch:14},{wch:14},{wch:12},{wch:10},{wch:10},{wch:14},{wch:14}];
+  const ws = buildStyledSheet(aoa, merges, styleMap, cols, NC, formulaMap);
+  ws['!pageSetup'] = {orientation:'landscape', fitToWidth:1, fitToHeight:0};
+  ws['!sheetPr']   = {pageSetUpPr:{fitToPage:true}};
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'COSTING');
+  const fn = (v('vchNum') || 'costing').replace(/[^\w\-]+/g,'-');
+  XLSX.writeFile(wb, `costing-${fn}.xlsx`);
 }
 
 /* ════════════ Branded Quotation (PDF) — copycats QT-UC-MK template ════════════ */
